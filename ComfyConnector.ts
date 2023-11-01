@@ -24,7 +24,7 @@ export function readImageIntoBuffer(imagePath: string): Buffer | null {
     }
 }
 
-function randomSeed: string {
+function randomSeed(): string {
     const min = 0;
     const max = Math.pow(2, 32) - 1;
     return (Math.floor(Math.random() * (max - min + 1)) + min).toString();
@@ -37,7 +37,7 @@ export class ComfyConnector {
     constructor(server_address: string) {
         this.server_address = server_address;
         this.ws_address = server_address + "/ws?clientId=" + this.client_id;
-//        this.ws = new WebSoccket(this.ws_address);
+        this.ws = new WebSoccket(this.ws_address);
     }
 
     private server_address;
@@ -82,22 +82,23 @@ export class ComfyConnector {
 
         payload = payload.replace("{RANDOM_SEED\}",randomSeed);
 
-        console.log(payload);
-
         try {
-            if (!this.ws || this.ws.readyState !== WebSoccket.OPEN) {
+            if (!this.ws) {
                 console.log("WebSocket is not connected. Reconnecting...");
                 this.ws = new WebSoccket(this.ws_address);
             }
 
             const prompt_id = (await this.queuePrompt(JSON.parse(payload))).prompt_id;
+            const start = process.hrtime();
 
-            let dots = `generating prompt-id: ${prompt_id}`
+            let dots = `\rgenerating prompt-id: ${prompt_id} `
+            process.stderr.write(`${dots}\r`);
+            
             const executedMsg = await new Promise<any>((resolve) => {
                 const handler = (rawData: WebSoccket.RawData, isBinary: boolean) => {
                     dots += '.';
                     
-                    console.log(`\r ${dots}`);
+                    process.stderr.write(`${dots}\r`);
                     if (!isBinary) {
                         const message = JSON.parse(rawData.toString());
                         if (message.type === 'executed' && message.data.node !== null && message.data.prompt_id) {
@@ -109,6 +110,10 @@ export class ComfyConnector {
                 this.ws.on('message', handler);
             });
 
+            process.stderr.write(`${dots} done!\r\n`);
+            const diff = process.hrtime(start);
+            const time = (diff[0] + diff[1] / 1e9).toFixed(1);
+            console.log(`took: ${time}s`);
             this.ws.removeAllListeners();
             this.ws.close();
 

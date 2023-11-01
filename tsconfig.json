@@ -4,11 +4,12 @@
         "noImplicitAny": true,
         "removeComments": true,
         "preserveConstEnums": true,
-        "sourceMap": true
+        "sourceMap": true,
+        "skipLibCheck": true,
     },
     "files": [
         "index.ts",
         "ComfyConnector.ts",
     ],
-    "exclude": ["**/*.d.ts"]
+    "exclude": ["./node_modules/image-js/index.d.ts"]
 }
