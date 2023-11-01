@@ -20,7 +20,9 @@
             "outFiles": [
                 "${workspaceFolder}/**/*.js"
             ],
-            "preLaunchTask": "tsc: build - tsconfig.json"
+            "preLaunchTask": "tsc: build - tsconfig.json",
+            "console": "integratedTerminal", 
+            "outputCapture": "std",
         }
     ]
 }
