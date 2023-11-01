@@ -2,6 +2,7 @@ import { Image } from 'image-js';
 import axios from 'axios';
 import * as WebSoccket from 'ws';
 import * as fs from 'fs';
+import { v4 as uuidv4 } from 'uuid';
 
 export function readFileIntoString(filePath: string): string {
     try {
@@ -23,19 +24,26 @@ export function readImageIntoBuffer(imagePath: string): Buffer | null {
     }
 }
 
+function randomSeed: string {
+    const min = 0;
+    const max = Math.pow(2, 32) - 1;
+    return (Math.floor(Math.random() * (max - min + 1)) + min).toString();
+  }
+
 export class ComfyConnector {
 
-    constructor(server_address: string, ws_address: string, client_id: string) {
+    private client_id = "hugo" + uuidv4();
+
+    constructor(server_address: string) {
         this.server_address = server_address;
-        this.client_id = client_id;
-        this.ws_address = ws_address;  
+        this.ws_address = server_address + "/ws?clientId=" + this.client_id;
+//        this.ws = new WebSoccket(this.ws_address);
     }
 
-    private server_address: string = "";
-    private client_id: string = "";
-    private ws_address: string = "";
+    private server_address;
+    private ws_address;
 
-    private ws: WebSoccket //= new WebSoccket(this.ws_address);
+    private ws: WebSoccket; //= new WebSoccket(this.ws_address);
 
     async getHistory(prompt_id: string) {
         const response = await axios.get(`${this.server_address}/history/${prompt_id}`);
@@ -49,8 +57,10 @@ export class ComfyConnector {
             type: folderType
         });
 
-        const response = await axios.get(`${this.server_address}/view?${params}`);
-        return response.data;
+        const response = await axios.get(`${this.server_address}/view?${params}`, {
+            responseType: 'arraybuffer'
+        });
+        return Buffer.from(response.data);
     }
 
     async queuePrompt(prompt: string) {
@@ -69,37 +79,46 @@ export class ComfyConnector {
     }
 
     async generateImages(payload: string) {
+
+        payload = payload.replace("{RANDOM_SEED\}",randomSeed);
+
+        console.log(payload);
+
         try {
-            if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            if (!this.ws || this.ws.readyState !== WebSoccket.OPEN) {
                 console.log("WebSocket is not connected. Reconnecting...");
                 this.ws = new WebSoccket(this.ws_address);
             }
-            const prompt_id = (await this.queuePrompt(payload)).prompt_id;
 
-            while (true) {
-                const out = await new Promise<any>((resolve) => this.ws.once('message', resolve));
+            const prompt_id = (await this.queuePrompt(JSON.parse(payload))).prompt_id;
 
-                if (typeof out === 'string') {
-                    const message = JSON.parse(out);
-
-                    if (message.type === 'executing') {
-                        const data = message.data;
-                        if (data.node === null && data.prompt_id === prompt_id) {
-                            break;
+            let dots = `generating prompt-id: ${prompt_id}`
+            const executedMsg = await new Promise<any>((resolve) => {
+                const handler = (rawData: WebSoccket.RawData, isBinary: boolean) => {
+                    dots += '.';
+                    
+                    console.log(`\r ${dots}`);
+                    if (!isBinary) {
+                        const message = JSON.parse(rawData.toString());
+                        if (message.type === 'executed' && message.data.node !== null && message.data.prompt_id) {
+                            resolve(message);
                         }
                     }
-                }
-            }
+                };
 
-            const address = ComfyConnector.findOutputNode(payload);
-            const history = (await this.getHistory(prompt_id))[prompt_id];
-            const filenames = eval(`history['outputs']${address}`)['images'];
+                this.ws.on('message', handler);
+            });
+
+            this.ws.removeAllListeners();
+            this.ws.close();
+
+            const outputs = executedMsg.data.output.images;
 
             const images: Image[] = [];
 
-            for (const img_info of filenames) {
-                const imageData = await this.getImage(img_info.filename, img_info.subfolder, img_info.type);
-                const image = await Image.load(imageData);
+            for (const img_info of outputs) {
+                const imageBuffer = await this.getImage(img_info.filename, img_info.subfolder, img_info.type);
+                const image = await Image.load(imageBuffer);
                 images.push(image);
             }
 
@@ -110,8 +129,8 @@ export class ComfyConnector {
         }
     }
 
-    async uploadImage(imageBuffer: Buffer, subfolder?: string | null, folderType?: string | null, overwrite: boolean = false): Promise<any> {
-        try { 
+    async uploadImage(imageBuffer: Buffer, filename: string, subfolder?: string | null, folderType?: string | null, overwrite: boolean = false): Promise<any> {
+        try {
             const url = `${this.server_address}/upload/image`;
             const data: Record<string, string> = {
                 'overwrite': overwrite.toString()
@@ -122,20 +141,20 @@ export class ComfyConnector {
             if (folderType) {
                 data['type'] = folderType;
             }
-    
+
             // Convert buffer to a Blob for sending as a file in the fetch API
             const blob = new Blob([imageBuffer], { type: 'image/jpeg' });  // Assuming JPEG, adjust if necessary
             const formData = new FormData();
-            formData.append('image', blob, 'uploaded_image.jpg');  // Assuming a default name, adjust if necessary
+            formData.append('image', blob, filename);  // Assuming a default name, adjust if necessary
             for (const key in data) {
                 formData.append(key, data[key]);
             }
-    
+
             const response = await fetch(url, {
                 method: 'POST',
                 body: formData
             });
-            
+
             return await response.json();
         } catch (e) {
             // Handle the error similarly as before
@@ -143,7 +162,7 @@ export class ComfyConnector {
             throw e;
         }
     }
-    
+
 
     static findOutputNode(json_object: any): string | null {
         for (const [key, value] of Object.entries(json_object)) {
@@ -162,7 +181,7 @@ export class ComfyConnector {
     static replaceKeyValue(json_object: any, target_key: string, new_value: any, class_type_list?: string[], exclude: boolean = true) {
         for (const [key, value] of Object.entries(json_object)) {
             if (typeof value === 'object' && value !== null && 'class_type' in value) {
-                const v = value as {[k: string]: any}
+                const v = value as { [k: string]: any }
                 const class_type = (v['class_type'])
 
                 const should_apply_logic = (

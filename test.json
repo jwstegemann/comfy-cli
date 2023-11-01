@@ -1,7 +1,7 @@
 {
   "3": {
     "inputs": {
-      "seed": 156680208700286,
+      "seed": {RANDOM_SEED},
       "steps": 20,
       "cfg": 8,
       "sampler_name": "euler",
@@ -75,7 +75,7 @@
   },
   "9": {
     "inputs": {
-      "filename_prefix": "ComfyUI",
+      "filename_prefix": "Hugo",
       "images": [
         "8",
         0

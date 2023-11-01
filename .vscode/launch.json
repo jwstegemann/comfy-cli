@@ -7,7 +7,7 @@
         {
             "type": "node",
             "request": "launch",
-            "args": ["generate","test.json", "https://concentrations-mileage-japanese-pushing.trycloudflare.com"],
+            "args": ["https://depth-geneva-triumph-contributions.trycloudflare.com", "generate", "test.json", "outfile.png"],
             "name": "Launch Generate test.json",
             "skipFiles": [
                 "<node_internals>/**"
@@ -19,7 +19,8 @@
             "program": "${workspaceFolder}/index.js",
             "outFiles": [
                 "${workspaceFolder}/**/*.js"
-            ]
+            ],
+            "preLaunchTask": "tsc: build - tsconfig.json"
         }
     ]
 }
